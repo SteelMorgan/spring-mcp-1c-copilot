@@ -1,0 +1,21 @@
+# Dockerfile для сборки
+FROM gradle:8.5-jdk17 AS builder
+
+WORKDIR /app
+COPY . .
+
+RUN gradle build -x test
+
+# Финальный образ
+FROM openjdk:17-jdk-slim
+
+WORKDIR /app
+
+# Копируем JAR файл
+COPY --from=builder /app/build/libs/spring-mcp-1c-copilot-*.jar app.jar
+
+# Указываем порт
+EXPOSE 8000
+
+# Определяем команду для запуска
+ENTRYPOINT ["java", "-jar", "app.jar", "--spring.profiles.active=sse"]

@@ -1,0 +1,19 @@
+services:
+  spring-mcp-1c-copilot:
+    build:
+      context: .
+      dockerfile: Dockerfile.build
+    container_name: spring-mcp-1c-copilot
+    ports:
+      - "8000:8000"
+    environment:
+      # 1С:Напарник API настройки
+      ONEC_AI_TOKEN: "mKGMkWpAZiHkChI3OkmcYKT_P4agV6p4NaSZmcdvUJ8"
+      ONEC_AI_BASE_URL: "https://code.1c.ai"
+      ONEC_AI_TIMEOUT: "30"
+      ONEC_AI_UI_LANGUAGE: "russian"
+      
+      # MCP настройки
+      SSE_PORT: "8000"
+      LOG_LEVEL: "INFO"
+    restart: unless-stopped

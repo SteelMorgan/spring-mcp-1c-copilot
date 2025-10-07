@@ -1,0 +1,43 @@
+spring:
+  application:
+    name: spring-mcp-1c-copilot
+  ai:
+    mcp:
+      server:
+        # Информация о сервере
+        name: "1C Copilot MCP Server"
+        version: "1.0.0"
+        description: "MCP сервер для интеграции с 1С:Напарник API"
+        instructions: "MCP сервер для работы с 1С:Напарник API. Предоставляет инструменты для вопросов к ИИ, объяснения синтаксиса и проверки кода 1С."
+        type: SYNC
+
+        # Возможности сервера
+        capabilities:
+          tools:
+            # Поддержка инструментов
+            enabled: true
+          resources:
+            # Поддержка ресурсов (отключено для простоты)
+            enabled: false
+          prompts:
+            # Поддержка промптов (отключено для простоты)
+            enabled: false
+
+# Настройки 1С:Напарник API
+onec:
+  ai:
+    token: ${ONEC_AI_TOKEN:}
+    base-url: ${ONEC_AI_BASE_URL:https://code.1c.ai}
+    timeout: ${ONEC_AI_TIMEOUT:30}
+    ui-language: ${ONEC_AI_UI_LANGUAGE:russian}
+
+# Настройки сервера
+server:
+  port: ${SSE_PORT:8000}
+
+# Настройки логирования
+logging:
+  level:
+    root: INFO
+    ru.alkoleft.copilot: DEBUG
+    org.springframework.ai.mcp: INFO
