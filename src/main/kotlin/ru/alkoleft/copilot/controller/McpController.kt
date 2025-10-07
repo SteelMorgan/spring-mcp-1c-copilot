@@ -1,6 +1,14 @@
 package ru.alkoleft.copilot.controller
 
 import io.github.oshai.kotlinlogging.KotlinLogging
+import io.swagger.v3.oas.annotations.Operation
+import io.swagger.v3.oas.annotations.Parameter
+import io.swagger.v3.oas.annotations.media.Content
+import io.swagger.v3.oas.annotations.media.ExampleObject
+import io.swagger.v3.oas.annotations.media.Schema
+import io.swagger.v3.oas.annotations.responses.ApiResponse
+import io.swagger.v3.oas.annotations.responses.ApiResponses
+import io.swagger.v3.oas.annotations.tags.Tag
 import org.springframework.http.MediaType
 import org.springframework.web.bind.annotation.*
 import reactor.core.publisher.Flux
@@ -11,11 +19,25 @@ private val logger = KotlinLogging.logger {}
 
 @RestController
 @RequestMapping("/mcp")
+@Tag(name = "MCP Server", description = "Model Context Protocol сервер для 1С:Напарник")
 class McpController(
     private val oneCCopilotService: OneCCopilotService
 ) {
     
     @GetMapping(produces = [MediaType.TEXT_EVENT_STREAM_VALUE])
+    @Operation(
+        summary = "SSE Stream",
+        description = "Server-Sent Events поток для MCP клиентов"
+    )
+    @ApiResponses(
+        value = [
+            ApiResponse(
+                responseCode = "200",
+                description = "SSE поток успешно установлен",
+                content = [Content(mediaType = "text/event-stream")]
+            )
+        ]
+    )
     fun sseStream(): Flux<String> {
         logger.info { "SSE stream started" }
         
@@ -25,7 +47,77 @@ class McpController(
     }
     
     @PostMapping(consumes = ["application/json;charset=UTF-8"], produces = ["application/json;charset=UTF-8"])
-    fun handleMcpRequest(@RequestBody request: Map<String, Any>): Map<String, Any> {
+    @Operation(
+        summary = "MCP Request Handler",
+        description = "Основной обработчик MCP (Model Context Protocol) запросов"
+    )
+    @ApiResponses(
+        value = [
+            ApiResponse(
+                responseCode = "200",
+                description = "MCP запрос успешно обработан",
+                content = [Content(
+                    mediaType = "application/json",
+                    schema = Schema(implementation = Map::class),
+                    examples = [
+                        ExampleObject(
+                            name = "Initialize Response",
+                            value = """
+                            {
+                                "jsonrpc": "2.0",
+                                "id": "1",
+                                "result": {
+                                    "protocolVersion": "2025-06-18",
+                                    "capabilities": {
+                                        "tools": {"listChanged": true},
+                                        "prompts": {},
+                                        "resources": {},
+                                        "logging": {}
+                                    },
+                                    "serverInfo": {
+                                        "name": "1C Copilot MCP Server",
+                                        "version": "1.0.0"
+                                    }
+                                }
+                            }
+                            """
+                        ),
+                        ExampleObject(
+                            name = "Tools List Response",
+                            value = """
+                            {
+                                "jsonrpc": "2.0",
+                                "id": "2",
+                                "result": {
+                                    "tools": [
+                                        {
+                                            "name": "ask_1c_ai",
+                                            "description": "Ask question to 1C:Assistant AI",
+                                            "inputSchema": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "question": {
+                                                        "type": "string",
+                                                        "description": "Question for 1C:Assistant AI"
+                                                    }
+                                                },
+                                                "required": ["question"]
+                                            }
+                                        }
+                                    ]
+                                }
+                            }
+                            """
+                        )
+                    ]
+                )]
+            )
+        ]
+    )
+    fun handleMcpRequest(
+        @Parameter(description = "MCP JSON-RPC запрос")
+        @RequestBody request: Map<String, Any>
+    ): Map<String, Any> {
         logger.info { "MCP request received: $request" }
         
         return when (request["method"]) {

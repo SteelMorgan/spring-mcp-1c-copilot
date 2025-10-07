@@ -30,6 +30,9 @@ dependencies {
     // JSON
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
     
+    // Swagger/OpenAPI
+    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.2.0")
+    
     // Logging
     implementation("io.github.oshai:kotlin-logging-jvm:5.1.0")
     
