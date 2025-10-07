@@ -19,8 +19,17 @@ class OneCApiClient(
     
     private val webClient = WebClient.builder()
         .baseUrl(baseUrl)
-        .defaultHeader("Authorization", "Bearer $token")
-        .defaultHeader("Content-Type", "application/json")
+        .defaultHeader("Accept", "*/*")
+        .defaultHeader("Accept-Charset", "utf-8")
+        .defaultHeader("Accept-Encoding", "gzip, deflate, br")
+        .defaultHeader("Accept-Language", "ru-ru,en-us;q=0.8,en;q=0.7")
+        .defaultHeader("Content-Type", "application/json; charset=utf-8")
+        .defaultHeader("Origin", baseUrl)
+        .defaultHeader("Referer", "$baseUrl/chat/")
+        .defaultHeader("User-Agent", "Mozilla/5.0")
+        .defaultHeader("Authorization", token)
+        .defaultHeader("X-API-Key", token)
+        .defaultHeader("X-Auth-Token", token)
         .build()
     
     private var currentSessionId: String? = null
@@ -34,19 +43,20 @@ class OneCApiClient(
             }
             
             val request = mapOf(
-                "message" to question,
-                "conversation_id" to sessionId
+                "parent_uuid" to null,
+                "tool_content" to mapOf("instruction" to question)
             )
             
             val response = webClient.post()
-                .uri("/api/v1/chat")
+                .uri("/chat_api/v1/conversations/$sessionId/messages")
+                .header("Accept", "text/event-stream")
                 .bodyValue(request)
                 .retrieve()
-                .bodyToMono<Map<String, Any>>()
+                .bodyToMono<String>()
                 .timeout(Duration.ofSeconds(timeout))
                 .block()
             
-            return response?.get("response") as? String ?: "Ошибка: не получен ответ от 1С:Напарник"
+            return parseSseResponse(response ?: "")
             
         } catch (e: Exception) {
             logger.error(e) { "Ошибка при обращении к 1С:Напарник API" }
@@ -56,15 +66,23 @@ class OneCApiClient(
     
     private fun createNewSession(): String {
         try {
+            val request = mapOf(
+                "tool_name" to "custom",
+                "ui_language" to "russian",
+                "programming_language" to "",
+                "script_language" to ""
+            )
+            
             val response = webClient.post()
-                .uri("/api/v1/conversations")
-                .bodyValue(mapOf("name" to "MCP Session"))
+                .uri("/chat_api/v1/conversations/")
+                .header("Session-Id", "")
+                .bodyValue(request)
                 .retrieve()
                 .bodyToMono<Map<String, Any>>()
                 .timeout(Duration.ofSeconds(timeout))
                 .block()
             
-            val sessionId = response?.get("id") as? String
+            val sessionId = response?.get("uuid") as? String
             if (sessionId != null) {
                 currentSessionId = sessionId
                 return sessionId
@@ -74,6 +92,44 @@ class OneCApiClient(
         } catch (e: Exception) {
             logger.error(e) { "Ошибка при создании сессии" }
             throw e
+        }
+    }
+    
+    private fun parseSseResponse(sseResponse: String): String {
+        try {
+            val lines = sseResponse.split("\n")
+            var fullText = ""
+            
+            for (line in lines) {
+                if (line.startsWith("data: ")) {
+                    try {
+                        val dataStr = line.substring(6)
+                        val data = com.fasterxml.jackson.databind.ObjectMapper().readValue(dataStr, Map::class.java)
+                        
+                        val role = data["role"] as? String
+                        val content = data["content"] as? Map<String, Any>
+                        val finished = data["finished"] as? Boolean ?: false
+                        
+                        if (role == "assistant" && content != null && content.containsKey("text")) {
+                            val text = content["text"] as? String
+                            if (text != null && text.isNotEmpty()) {
+                                fullText = text
+                            }
+                            if (finished) {
+                                break
+                            }
+                        }
+                    } catch (e: Exception) {
+                        logger.warn { "Ошибка парсинга SSE chunk: $e" }
+                        continue
+                    }
+                }
+            }
+            
+            return fullText.ifEmpty { "Ошибка: не получен ответ от 1С:Напарник" }
+        } catch (e: Exception) {
+            logger.error(e) { "Ошибка парсинга SSE ответа" }
+            return "Ошибка парсинга ответа: ${e.message}"
         }
     }
 }
