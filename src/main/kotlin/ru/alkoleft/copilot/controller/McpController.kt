@@ -124,7 +124,20 @@ class McpController(
             "initialize" -> handleInitialize(request)
             "tools/list" -> handleToolsList(request)
             "tools/call" -> handleToolsCall(request)
-            else -> mapOf("error" to "Unknown method: ${request["method"]}")
+            "prompts/list" -> handlePromptsList(request)
+            "resources/list" -> handleResourcesList(request)
+            "notifications/initialized" -> handleNotificationInitialized(request)
+            else -> {
+                logger.warn { "Unknown MCP method: ${request["method"]}" }
+                mapOf(
+                    "jsonrpc" to "2.0",
+                    "id" to (request["id"] ?: ""),
+                    "error" to mapOf(
+                        "code" to -32601,
+                        "message" to "Method not found: ${request["method"]}"
+                    )
+                )
+            }
         }
     }
     
@@ -258,5 +271,32 @@ class McpController(
                 "error" to mapOf("message" to (e.message ?: "Unknown error"))
             )
         }
+    }
+    
+    private fun handlePromptsList(request: Map<String, Any>): Map<String, Any> {
+        logger.debug { "Handling prompts/list request" }
+        return mapOf(
+            "jsonrpc" to "2.0",
+            "id" to (request["id"] ?: ""),
+            "result" to mapOf("prompts" to emptyList<Any>())
+        )
+    }
+    
+    private fun handleResourcesList(request: Map<String, Any>): Map<String, Any> {
+        logger.debug { "Handling resources/list request" }
+        return mapOf(
+            "jsonrpc" to "2.0",
+            "id" to (request["id"] ?: ""),
+            "result" to mapOf("resources" to emptyList<Any>())
+        )
+    }
+    
+    private fun handleNotificationInitialized(request: Map<String, Any>): Map<String, Any> {
+        logger.info { "Client initialized notification received" }
+        // Уведомления не требуют ответа согласно MCP протоколу
+        // Но возвращаем пустой объект для совместимости
+        return mapOf(
+            "jsonrpc" to "2.0"
+        )
     }
 }
