@@ -1,4 +1,4 @@
-# Dockerfile для сборки
+﻿# Dockerfile для сборки
 FROM gradle:8.5-jdk17 AS builder
 
 WORKDIR /app
@@ -7,7 +7,7 @@ COPY . .
 RUN gradle build -x test
 
 # Финальный образ
-FROM openjdk:17-jdk-slim
+FROM eclipse-temurin:17-jre-jammy
 
 WORKDIR /app
 

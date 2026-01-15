@@ -8,7 +8,7 @@ services:
       - "8000:8000"
     environment:
       # 1С:Напарник API настройки
-      ONEC_AI_TOKEN: "mKGMkWpAZiHkChI3OkmcYKT_P4agV6p4NaSZmcdvUJ8"
+      ONEC_AI_TOKEN: "${ONEC_AI_TOKEN}"
       ONEC_AI_BASE_URL: "https://code.1c.ai"
       ONEC_AI_TIMEOUT: "30"
       ONEC_AI_UI_LANGUAGE: "russian"

@@ -1,6 +1,6 @@
 # Тест различных API endpoints для 1С:Напарник
 $baseUrl = "https://code.1c.ai"
-$token = "mKGMkWpAZiHkChI3OkmcYKT_P4agV6p4NaSZmcdvUJ8"
+$token = $env:ONEC_AI_TOKEN
 $headers = @{
     "Authorization" = "Bearer $token"
     "Content-Type" = "application/json"
