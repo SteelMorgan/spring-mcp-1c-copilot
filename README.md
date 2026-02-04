@@ -131,7 +131,7 @@ springdoc:
 
 ```json
 {
-  "servers": {
+  "mcpServers": {
     "1c-copilot-proxy": {
       "url": "http://localhost:8000/mcp"
     }
