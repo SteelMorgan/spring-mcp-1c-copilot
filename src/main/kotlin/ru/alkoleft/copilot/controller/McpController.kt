@@ -11,9 +11,13 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses
 import io.swagger.v3.oas.annotations.tags.Tag
 import org.springframework.http.MediaType
 import org.springframework.web.bind.annotation.*
-import reactor.core.publisher.Flux
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
 import ru.alkoleft.copilot.service.OneCCopilotService
-import java.time.Duration
+import java.io.IOException
+import java.util.UUID
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 private val logger = KotlinLogging.logger {}
 
@@ -23,6 +27,11 @@ private val logger = KotlinLogging.logger {}
 class McpController(
     private val oneCCopilotService: OneCCopilotService
 ) {
+
+    companion object {
+        private const val HEARTBEAT_INTERVAL_SECONDS = 30L
+        private const val SSE_TIMEOUT_MS = 0L // no timeout; client controls disconnect lifecycle
+    }
     
     @GetMapping(produces = [MediaType.TEXT_EVENT_STREAM_VALUE])
     @Operation(
@@ -38,12 +47,86 @@ class McpController(
             )
         ]
     )
-    fun sseStream(): Flux<String> {
-        logger.info { "SSE stream started" }
-        
-        return Flux.interval(Duration.ofSeconds(30))
-            .map { "data: {\"type\":\"heartbeat\",\"timestamp\":${System.currentTimeMillis()}}\n\n" }
-            .doOnNext { logger.debug { "Sending heartbeat" } }
+    fun sseStream(): SseEmitter {
+        val clientId = UUID.randomUUID().toString()
+        val emitter = SseEmitter(SSE_TIMEOUT_MS)
+        val scheduler = Executors.newSingleThreadScheduledExecutor { runnable ->
+            Thread(runnable, "sse-heartbeat-$clientId").apply { isDaemon = true }
+        }
+        val closed = AtomicBoolean(false)
+
+        logger.info { "SSE stream started (clientId=$clientId)" }
+
+        fun closeStream(reason: String) {
+            if (closed.compareAndSet(false, true)) {
+                scheduler.shutdownNow()
+                logger.info { "SSE stream closed (clientId=$clientId, reason=$reason)" }
+            }
+        }
+
+        emitter.onCompletion { closeStream("completion") }
+        emitter.onTimeout {
+            closeStream("timeout")
+            runCatching { emitter.complete() }
+        }
+        emitter.onError { ex ->
+            if (ex is IOException || ex is IllegalStateException) {
+                logger.debug { "SSE stream error after client disconnect (clientId=$clientId): ${ex.message}" }
+            } else {
+                logger.warn(ex) { "Unexpected SSE stream error (clientId=$clientId)" }
+            }
+            closeStream("error")
+        }
+
+        if (!sendHeartbeat(emitter, clientId)) {
+            closeStream("initial-heartbeat-failed")
+            runCatching { emitter.complete() }
+            return emitter
+        }
+
+        scheduler.scheduleAtFixedRate(
+            {
+                if (closed.get()) return@scheduleAtFixedRate
+
+                val sent = sendHeartbeat(emitter, clientId)
+                if (!sent) {
+                    closeStream("heartbeat-failed")
+                    runCatching { emitter.complete() }
+                }
+            },
+            HEARTBEAT_INTERVAL_SECONDS,
+            HEARTBEAT_INTERVAL_SECONDS,
+            TimeUnit.SECONDS
+        )
+
+        return emitter
+    }
+
+    private fun sendHeartbeat(emitter: SseEmitter, clientId: String): Boolean {
+        return try {
+            emitter.send(
+                SseEmitter.event()
+                    .name("heartbeat")
+                    .data(
+                        mapOf(
+                            "type" to "heartbeat",
+                            "timestamp" to System.currentTimeMillis()
+                        )
+                    )
+            )
+            logger.debug { "SSE heartbeat sent (clientId=$clientId)" }
+            true
+        } catch (_: IOException) {
+            logger.debug { "SSE client disconnected while sending heartbeat (clientId=$clientId)" }
+            false
+        } catch (_: IllegalStateException) {
+            // Happens when async context is already closed by container after client disconnect.
+            logger.debug { "SSE async context already closed (clientId=$clientId)" }
+            false
+        } catch (ex: Exception) {
+            logger.warn(ex) { "Unexpected SSE heartbeat error (clientId=$clientId)" }
+            false
+        }
     }
     
     @PostMapping(consumes = ["application/json;charset=UTF-8"], produces = ["application/json;charset=UTF-8"])
