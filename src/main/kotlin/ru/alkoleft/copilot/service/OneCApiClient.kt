@@ -96,7 +96,8 @@ class OneCApiClient(
     private fun parseSseResponse(sseResponse: String): String {
         try {
             val lines = sseResponse.split("\n")
-            var fullText = ""
+            var answerText = ""       // финальный ответ из content_delta.content
+            var reasoningText = ""    // размышления из content_delta.reasoning_content
             for (line in lines) {
                 if (!line.startsWith("data: ")) {
                     continue
@@ -104,26 +105,40 @@ class OneCApiClient(
                 try {
                     val dataStr = line.substring(6)
                     val data = objectMapper.readValue(dataStr, Map::class.java)
-                    val role = data["role"] as? String
                     val contentDelta = data["content_delta"] as? Map<*, *>
-                    val deltaText = contentDelta?.get("content") as? String
-                    if (!deltaText.isNullOrEmpty()) {
-                        fullText += deltaText
+                    if (contentDelta != null) {
+                        // финальный текст ответа
+                        val deltaContent = contentDelta["content"] as? String
+                        if (!deltaContent.isNullOrEmpty()) {
+                            answerText += deltaContent
+                        }
+                        // текст размышлений модели
+                        val deltaReasoning = contentDelta["reasoning_content"] as? String
+                        if (!deltaReasoning.isNullOrEmpty()) {
+                            reasoningText += deltaReasoning
+                        }
                     }
+                    // финальный content из завершённого сообщения (приоритет над дельтами)
                     val content = data["content"] as? Map<*, *>
-                    val finalText = content?.get("content") as? String
-                    if (!finalText.isNullOrEmpty() && finalText.length > fullText.length) {
-                        fullText = finalText
+                    val finalContent = content?.get("content") as? String
+                    if (!finalContent.isNullOrEmpty() && finalContent.length > answerText.length) {
+                        answerText = finalContent
                     }
-                    val finished = data["finished"] as? Boolean ?: false
-                    if (finished && (role == "assistant" || fullText.isNotEmpty())) {
-                        break
+                    val finalReasoning = content?.get("reasoning_content") as? String
+                    if (!finalReasoning.isNullOrEmpty() && finalReasoning.length > reasoningText.length) {
+                        reasoningText = finalReasoning
                     }
                 } catch (e: Exception) {
                     logger.warn { "Ошибка парсинга SSE chunk: $e" }
                 }
             }
-            return fullText.ifEmpty { "Ошибка: не получен ответ от 1С:Напарник" }
+            return when {
+                answerText.isNotEmpty() && reasoningText.isNotEmpty() ->
+                    "<thinking>\n$reasoningText\n</thinking>\n\n$answerText"
+                answerText.isNotEmpty() -> answerText
+                reasoningText.isNotEmpty() -> reasoningText
+                else -> "Ошибка: не получен ответ от 1С:Напарник"
+            }
         } catch (e: Exception) {
             logger.error(e) { "Ошибка парсинга SSE ответа" }
             return "Ошибка парсинга ответа: ${e.message}"
