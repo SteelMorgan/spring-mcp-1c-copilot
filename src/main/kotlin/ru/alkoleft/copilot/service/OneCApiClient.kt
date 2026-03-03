@@ -36,12 +36,14 @@ class OneCApiClient(
                 currentSessionId!!
             }
             
+            val responseInstruction = buildResponseInstruction(question)
             val request = mapOf(
                 "role" to "user",
                 "content" to mapOf(
-                    "content" to mapOf("instruction" to question)
+                    "content" to mapOf("instruction" to responseInstruction)
                 ),
-                "parent_uuid" to null
+                "parent_uuid" to null,
+                "thinking_allowed" to false
             )
             val response: HttpResponse = executePost(
                 path = "/chat_api/v1/conversations/$sessionId/messages",
@@ -64,6 +66,16 @@ class OneCApiClient(
         }
     }
     
+    private fun buildResponseInstruction(question: String): String {
+        return """
+            $question
+
+            Верни только финальный ответ для пользователя.
+            Не добавляй рассуждения, планы, скрытые мысли, теги <thinking> и служебные пояснения.
+            Если не можешь дать ответ — верни краткое сообщение об ошибке.
+        """.trimIndent()
+    }
+
     private fun createNewSession(): String {
         try {
             val request = mapOf(
@@ -108,8 +120,8 @@ class OneCApiClient(
                     val contentDelta = data["content_delta"] as? Map<*, *>
                     if (contentDelta != null) {
                         // финальный текст ответа
-                        val deltaContent = contentDelta["content"] as? String
-                        if (!deltaContent.isNullOrEmpty()) {
+                        val deltaContent = sanitizeModelOutput(contentDelta["content"] as? String)
+                        if (deltaContent.isNotEmpty()) {
                             answerText += deltaContent
                         }
                         // текст размышлений модели
@@ -120,8 +132,8 @@ class OneCApiClient(
                     }
                     // финальный content из завершённого сообщения (приоритет над дельтами)
                     val content = data["content"] as? Map<*, *>
-                    val finalContent = content?.get("content") as? String
-                    if (!finalContent.isNullOrEmpty() && finalContent.length > answerText.length) {
+                    val finalContent = sanitizeModelOutput(content?.get("content") as? String)
+                    if (finalContent.isNotEmpty() && finalContent.length > answerText.length) {
                         answerText = finalContent
                     }
                     val finalReasoning = content?.get("reasoning_content") as? String
@@ -132,17 +144,30 @@ class OneCApiClient(
                     logger.warn { "Ошибка парсинга SSE chunk: $e" }
                 }
             }
+
+            val normalizedAnswer = answerText.trim()
             return when {
-                answerText.isNotEmpty() && reasoningText.isNotEmpty() ->
-                    "<thinking>\n$reasoningText\n</thinking>\n\n$answerText"
-                answerText.isNotEmpty() -> answerText
-                reasoningText.isNotEmpty() -> reasoningText
+                normalizedAnswer.isNotEmpty() -> normalizedAnswer
+                reasoningText.isNotEmpty() -> {
+                    logger.warn { "От 1С:Напарник получены только рассуждения без итогового ответа" }
+                    "Ошибка: получены только рассуждения модели без итогового ответа"
+                }
                 else -> "Ошибка: не получен ответ от 1С:Напарник"
             }
         } catch (e: Exception) {
             logger.error(e) { "Ошибка парсинга SSE ответа" }
             return "Ошибка парсинга ответа: ${e.message}"
         }
+    }
+
+    private fun sanitizeModelOutput(rawText: String?): String {
+        if (rawText.isNullOrBlank()) {
+            return ""
+        }
+
+        return rawText
+            .replace(Regex("(?is)<thinking>.*?</thinking>"), "")
+            .trim()
     }
 
     private fun executePost(path: String, requestBody: Any, accept: String? = null): HttpResponse {
