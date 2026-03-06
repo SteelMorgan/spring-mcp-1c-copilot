@@ -58,25 +58,52 @@
 git clone <repository-url>
 cd spring-mcp-1c-copilot
 
-# Установите переменные окружения
-export ONEC_AI_TOKEN="your_token_here"
-export ONEC_AI_BASE_URL="https://code.1c.ai"
+# 1. Скопируйте пример переменных окружения
+cp env.example .env
 
-# Запустите приложение
+# 2. Вставьте токен в файл .env в строку:
+# ONEC_AI_TOKEN=your_token_here
+
+# 3. Перенесите токен из .env в локальный secret-файл
+./scripts/prepare-token-secret.sh
+
+# 4. Запустите приложение
+export ONEC_AI_TOKEN_FILE="$PWD/.secrets/onec_ai_token"
+export ONEC_AI_BASE_URL="https://code.1c.ai"
+export ONEC_AI_SKILL_NAME="raw"
+
 ./gradlew bootRun
 ```
 
 ### 3. Docker запуск (рекомендуется)
 
 ```bash
-# Сборка образа
+# 1. Скопируйте env и вставьте токен в .env в строку ONEC_AI_TOKEN=...
+cp env.example .env
+
+# 2. Перенесите токен в локальный secret-файл
+./scripts/prepare-token-secret.sh
+
+# 3. Сборка образа
 docker build -f Dockerfile.build -t spring-mcp-1c-copilot .
 
-# Запуск контейнера
-docker run -d --name spring-mcp-1c-copilot -p 8000:8000 \
-  -e ONEC_AI_TOKEN="your_token_here" \
-  spring-mcp-1c-copilot
+# 4. Запуск контейнера
+docker compose up -d
 ```
+
+### 4. Сеть Docker
+
+Текущий `docker-compose.yml` подключает контейнер к внешней сети `infra`.
+
+Это актуально при работе в песочнице из репозитория [SteelMorgan/1c-agent-based-dev-framework](https://github.com/SteelMorgan/1c-agent-based-dev-framework), где такая сеть уже существует и используется для взаимодействия контейнеров между собой.
+
+В этом случае MCP endpoint внутри docker-сети будет доступен по адресу:
+
+```text
+http://spring-mcp-1c-copilot:8000/mcp
+```
+
+Если вы запускаете сервис вне этой песочницы, попросите своего агента помочь вам настроить сеть под ваше окружение. В других проектах внешняя сеть `infra` может отсутствовать или называться иначе.
 
 ## 📡 API Endpoints
 
@@ -96,13 +123,22 @@ docker run -d --name spring-mcp-1c-copilot -p 8000:8000 \
 
 ## ⚙️ Конфигурация
 
+### Что важно в текущей версии
+
+- По умолчанию используется `ONEC_AI_SKILL_NAME=raw`, потому что для справочного режима это стабильнее и не уводит Напарника во внутренние `tool_calls`.
+- Рекомендуемый способ хранения токена: файл `.secrets/onec_ai_token` через `ONEC_AI_TOKEN_FILE`.
+- Для миграции токена из `.env` в secret-файл добавлен скрипт `./scripts/prepare-token-secret.sh`.
+- В docker-compose контейнер монтирует secret-файл и может работать в сети `infra` для песочницы из `1c-agent-based-dev-framework`.
+
 ### Переменные окружения
 
 | Переменная | Описание | По умолчанию |
 |------------|----------|--------------|
 | `ONEC_AI_TOKEN` | Токен доступа к 1С:Напарник API | **Обязательно** |
+| `ONEC_AI_TOKEN_FILE` | Путь к файлу с токеном; используется вместо `ONEC_AI_TOKEN`, если env пуст | - |
 | `ONEC_AI_BASE_URL` | Базовый URL API | `https://code.1c.ai` |
 | `ONEC_AI_TIMEOUT` | Таймаут запросов (сек) | `30` |
+| `ONEC_AI_SKILL_NAME` | Режим сессии Напарника; для прямых ответов используйте `raw` | `raw` |
 | `SSE_PORT` | Порт сервера | `8000` |
 
 ### application.yml
@@ -111,8 +147,10 @@ docker run -d --name spring-mcp-1c-copilot -p 8000:8000 \
 onec:
   ai:
     token: ${ONEC_AI_TOKEN:}
+    token-file: ${ONEC_AI_TOKEN_FILE:}
     base-url: ${ONEC_AI_BASE_URL:https://code.1c.ai}
     timeout: ${ONEC_AI_TIMEOUT:30}
+    skill-name: ${ONEC_AI_SKILL_NAME:raw}
 
 server:
   port: ${SSE_PORT:8000}
@@ -180,6 +218,48 @@ curl -X POST "http://localhost:8000/api/ask-ai?question=Как создать с
 ```
 
 ## 🔧 Разработка
+
+### Безопасное хранение токена
+
+Рекомендуемый путь такой:
+
+```bash
+# 1. Скопируйте пример env
+cp env.example .env
+
+# 2. Откройте .env и вставьте токен в строку:
+# ONEC_AI_TOKEN=your_token_here
+
+# 3. Один раз выполните миграцию в локальный secret-файл
+./scripts/prepare-token-secret.sh
+
+# После этого:
+# - токен будет записан в .secrets/onec_ai_token
+# - строка ONEC_AI_TOKEN=... будет удалена из .env
+# - в .env появится ONEC_AI_TOKEN_FILE=.secrets/onec_ai_token
+```
+
+Если хотите положить токен в файл вручную, используйте тот же путь:
+
+```bash
+mkdir -p .secrets
+chmod 700 .secrets
+printf '%s' 'your_token_here' > .secrets/onec_ai_token
+chmod 600 .secrets/onec_ai_token
+
+export ONEC_AI_TOKEN_FILE="$PWD/.secrets/onec_ai_token"
+unset ONEC_AI_TOKEN
+./gradlew bootRun
+```
+
+Клиент отправляет токен в заголовок `Authorization` ровно в том виде, как он лежит в файле. Для токенов 1С:Напарник в этом окружении префикс `Bearer` не требуется.
+
+Для Docker Compose перед первым запуском достаточно выполнить:
+
+```bash
+./scripts/prepare-token-secret.sh
+docker compose up -d
+```
 
 ### Сборка
 ```bash
