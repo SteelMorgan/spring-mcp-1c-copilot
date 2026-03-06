@@ -54,3 +54,5 @@ Desktop.ini
 application-local.yml
 application-dev.yml
 *.env
+
+.secrets/

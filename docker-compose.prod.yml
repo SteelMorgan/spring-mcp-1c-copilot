@@ -11,12 +11,15 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - ONEC_AI_TOKEN=${ONEC_AI_TOKEN}
+      - ONEC_AI_TOKEN=${ONEC_AI_TOKEN:-}
+      - ONEC_AI_TOKEN_FILE=/run/secrets/onec_ai_token
       - ONEC_AI_BASE_URL=${ONEC_AI_BASE_URL:-https://code.1c.ai}
       - ONEC_AI_TIMEOUT=${ONEC_AI_TIMEOUT:-30}
+      - ONEC_AI_SKILL_NAME=${ONEC_AI_SKILL_NAME:-raw}
       - SPRING_PROFILES_ACTIVE=${SPRING_PROFILES_ACTIVE:-prod}
       - LOG_LEVEL=${LOG_LEVEL:-INFO}
     volumes:
+      - ./.secrets/onec_ai_token:/run/secrets/onec_ai_token:ro
       - ./logs:/app/logs
       - ./config:/app/config
     networks:
