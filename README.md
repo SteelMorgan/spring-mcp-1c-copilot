@@ -14,7 +14,7 @@
 
 - 🎯 **MCP Protocol Support**: Полная поддержка протокола MCP для интеграции с AI ассистентами
 - 🤖 **1С:Напарник Integration**: Прямая интеграция с API 1С:Напарник через правильные endpoints
-- ⚡ **SSE Support**: Поддержка Server-Sent Events для real-time коммуникации
+- ⚡ **Dual Transport Support**: Streamable HTTP по умолчанию для Codex и SSE-профиль для клиентов, которым нужен классический transport
 - 🌐 **REST API**: Дополнительные REST endpoints для прямого взаимодействия
 - 📚 **Swagger UI**: Интерактивная документация API
 - 🐳 **Docker Ready**: Готовые Docker конфигурации для развертывания

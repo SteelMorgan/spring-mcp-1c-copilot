@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile.build
     container_name: spring-mcp-1c-copilot
     ports:
-      - "8000:8000"
+      - "8186:8000"
     environment:
       # 1С:Напарник API настройки
       ONEC_AI_TOKEN: "${ONEC_AI_TOKEN:-}"
@@ -17,14 +17,12 @@ services:
       
       # MCP настройки
       SSE_PORT: "8000"
+      # По умолчанию transport для Codex и других streamable HTTP клиентов берётся из application.yml.
+      # Для совместимости с SSE-клиентами можно запускать контейнер с SPRING_PROFILES_ACTIVE=sse.
+      SPRING_PROFILES_ACTIVE: "${SPRING_PROFILES_ACTIVE:-}"
       LOG_LEVEL: "INFO"
     volumes:
       - ./.secrets/onec_ai_token:/run/secrets/onec_ai_token:ro
     networks:
-      - INFRA
+      - default
     restart: unless-stopped
-
-networks:
-  INFRA:
-    external: true
-    name: infra

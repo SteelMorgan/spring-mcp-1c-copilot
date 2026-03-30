@@ -4,24 +4,20 @@ spring:
   ai:
     mcp:
       server:
-        # Информация о сервере
         name: "1C Copilot MCP Server"
         version: "1.1.0"
-        description: "MCP сервер для интеграции с 1С:Напарник API"
         instructions: "MCP сервер для работы с 1С:Напарник API. Предоставляет инструменты для вопросов к ИИ, объяснения синтаксиса и проверки кода 1С."
+        protocol: STREAMABLE
         type: SYNC
-
-        # Возможности сервера
+        stdio: false
         capabilities:
-          tools:
-            # Поддержка инструментов
-            enabled: true
-          resources:
-            # Поддержка ресурсов (отключено для простоты)
-            enabled: false
-          prompts:
-            # Поддержка промптов (отключено для простоты)
-            enabled: false
+          tool: true
+          resource: true
+          prompt: false
+          completion: false
+        streamable-http:
+          mcp-endpoint: /mcp
+          keep-alive-interval: 1s
 
 # Настройки 1С:Напарник API
 onec:

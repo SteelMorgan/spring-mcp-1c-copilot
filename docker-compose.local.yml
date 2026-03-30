@@ -1,0 +1,9 @@
+services:
+  spring-mcp-1c-copilot:
+    ports:
+      - "8186:8000"
+    networks:
+      - default
+
+networks:
+  INFRA: null

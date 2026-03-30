@@ -1,8 +1,13 @@
-# Профиль для SSE режима
+# Профиль для SSE режима.
+# Основной application.yml использует streamable HTTP transport для Codex.
+# Этот профиль можно включать явно для клиентов, которым нужен классический SSE transport.
 spring:
   ai:
     mcp:
       server:
+        protocol: SSE
         stdio: false
+        sse-endpoint: /mcp
+        sse-message-endpoint: /mcp/message
 server:
   port: ${SSE_PORT:8000}

@@ -17,5 +17,7 @@ COPY --from=builder /app/build/libs/spring-mcp-1c-copilot-*.jar app.jar
 # Указываем порт
 EXPOSE 8000
 
-# Определяем команду для запуска
-ENTRYPOINT ["java", "-jar", "app.jar", "--spring.profiles.active=sse"]
+# Определяем команду для запуска.
+# По умолчанию используется streamable HTTP transport из application.yml.
+# Для SSE можно передать SPRING_PROFILES_ACTIVE=sse через docker-compose или окружение.
+ENTRYPOINT ["java", "-jar", "app.jar"]

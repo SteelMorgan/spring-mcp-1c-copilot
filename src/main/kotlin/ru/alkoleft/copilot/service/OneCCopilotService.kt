@@ -1,6 +1,8 @@
 package ru.alkoleft.copilot.service
 
 import io.github.oshai.kotlinlogging.KotlinLogging
+import org.springframework.ai.tool.annotation.Tool
+import org.springframework.ai.tool.annotation.ToolParam
 import org.springframework.stereotype.Service
 
 private val logger = KotlinLogging.logger {}
@@ -9,10 +11,16 @@ private val logger = KotlinLogging.logger {}
 class OneCCopilotService(
     private val oneCApiClient: OneCApiClient
 ) {
-    
+    @Tool(
+        name = "ask_1c_ai",
+        description = "Ask question to 1C:Assistant AI"
+    )
     fun ask1CAI(
+        @ToolParam(description = "Question for 1C:Assistant AI")
         question: String,
+        @ToolParam(description = "Programming language", required = false)
         programmingLanguage: String? = null,
+        @ToolParam(description = "Create new session", required = false)
         createNewSession: Boolean = false
     ): String {
         logger.debug { "ask_1c_ai called with question='$question', createNewSession='$createNewSession'" }
@@ -26,9 +34,15 @@ class OneCCopilotService(
             "❌ **Error:** ${e.message}"
         }
     }
-    
+
+    @Tool(
+        name = "explain_1c_syntax",
+        description = "Explain 1C syntax"
+    )
     fun explain1CSyntax(
+        @ToolParam(description = "Syntax element to explain")
         syntaxElement: String,
+        @ToolParam(description = "Usage context", required = false)
         context: String? = null
     ): String {
         logger.debug { "explain_1c_syntax called with syntaxElement='$syntaxElement', context='$context'" }
@@ -48,9 +62,15 @@ class OneCCopilotService(
             "❌ **Error:** ${e.message}"
         }
     }
-    
+
+    @Tool(
+        name = "check_1c_code",
+        description = "Check 1C code for errors"
+    )
     fun check1CCode(
+        @ToolParam(description = "1C code to check")
         code: String,
+        @ToolParam(description = "Check type: syntax, logic, performance", required = false)
         checkType: String = "syntax"
     ): String {
         logger.debug { "check_1c_code called with code='$code', checkType='$checkType'" }
@@ -73,5 +93,4 @@ class OneCCopilotService(
             "❌ **Error:** ${e.message}"
         }
     }
-    
 }

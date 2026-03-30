@@ -50,6 +50,10 @@ $env:ONEC_AI_TOKEN = "your_token_here"
 
 ## 🔧 Настройка Cursor IDE
 
+По умолчанию сервер запускается в режиме streamable HTTP на `http://localhost:8000/mcp`.
+
+Если клиенту нужен SSE transport, запускайте контейнер с `SPRING_PROFILES_ACTIVE=sse`.
+
 Добавьте в `~/.cursor/mcp.json`:
 
 ```json
