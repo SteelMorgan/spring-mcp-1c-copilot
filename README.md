@@ -25,7 +25,7 @@
 ### 1. `ask_1c_ai`
 Задать вопрос ИИ 1С:Напарник
 - **question** (обязательный): Вопрос для ИИ
-- **programming_language** (опционально): Язык программирования
+- **programming_language** (опционально): Язык программирования; для 1С/BSL используйте `1c`
 - **create_new_session** (опционально): Создать новую сессию
 
 ### 2. `explain_1c_syntax`
@@ -139,6 +139,9 @@ http://spring-mcp-1c-copilot:8000/mcp
 | `ONEC_AI_BASE_URL` | Базовый URL API | `https://code.1c.ai` |
 | `ONEC_AI_TIMEOUT` | Таймаут запросов (сек) | `30` |
 | `ONEC_AI_SKILL_NAME` | Режим сессии Напарника; для прямых ответов используйте `raw` | `raw` |
+| `ONEC_AI_UI_LANGUAGE` | Язык интерфейса API | `ru` |
+| `ONEC_AI_PROGRAMMING_LANGUAGE` | Язык программирования для новых разговоров; для 1С/BSL используйте `1c` | `1c` |
+| `ONEC_AI_SCRIPT_LANGUAGE` | Язык сценариев/ответов API | `ru` |
 | `SSE_PORT` | Порт сервера | `8000` |
 
 ### application.yml
@@ -151,6 +154,9 @@ onec:
     base-url: ${ONEC_AI_BASE_URL:https://code.1c.ai}
     timeout: ${ONEC_AI_TIMEOUT:30}
     skill-name: ${ONEC_AI_SKILL_NAME:raw}
+    ui-language: ${ONEC_AI_UI_LANGUAGE:ru}
+    programming-language: ${ONEC_AI_PROGRAMMING_LANGUAGE:1c}
+    script-language: ${ONEC_AI_SCRIPT_LANGUAGE:ru}
 
 server:
   port: ${SSE_PORT:8000}

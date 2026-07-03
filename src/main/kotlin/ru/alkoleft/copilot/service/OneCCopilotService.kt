@@ -18,7 +18,7 @@ class OneCCopilotService(
     fun ask1CAI(
         @ToolParam(description = "Question for 1C:Assistant AI")
         question: String,
-        @ToolParam(description = "Programming language", required = false)
+        @ToolParam(description = "Programming language. Use '1c' for 1C/BSL code", required = false)
         programming_language: String? = null,
         @ToolParam(description = "Create new session", required = false)
         create_new_session: Boolean = false
@@ -26,7 +26,7 @@ class OneCCopilotService(
         logger.debug { "ask_1c_ai called with question='$question', createNewSession='$create_new_session'" }
         
         return try {
-            val result = oneCApiClient.askQuestion(question, create_new_session)
+            val result = oneCApiClient.askQuestion(question, create_new_session, programming_language)
             logger.debug { "ask_1c_ai result: $result" }
             result
         } catch (e: Exception) {

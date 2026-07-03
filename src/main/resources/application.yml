@@ -27,7 +27,9 @@ onec:
     base-url: ${ONEC_AI_BASE_URL:https://code.1c.ai}
     timeout: ${ONEC_AI_TIMEOUT:30}
     skill-name: ${ONEC_AI_SKILL_NAME:raw}
-    ui-language: ${ONEC_AI_UI_LANGUAGE:russian}
+    ui-language: ${ONEC_AI_UI_LANGUAGE:ru}
+    programming-language: ${ONEC_AI_PROGRAMMING_LANGUAGE:1c}
+    script-language: ${ONEC_AI_SCRIPT_LANGUAGE:ru}
 
 # Настройки сервера
 server:

@@ -19,8 +19,15 @@ class OneCApiClient(
     @Value("\${onec.ai.token-file:}") private val tokenFile: String,
     @Value("\${onec.ai.base-url:https://code.1c.ai}") private val baseUrl: String,
     @Value("\${onec.ai.timeout:30}") private val timeout: Long,
-    @Value("\${onec.ai.skill-name:raw}") private val skillName: String
+    @Value("\${onec.ai.skill-name:raw}") private val skillName: String,
+    @Value("\${onec.ai.ui-language:ru}") private val uiLanguage: String,
+    @Value("\${onec.ai.programming-language:1c}") private val defaultProgrammingLanguage: String,
+    @Value("\${onec.ai.script-language:ru}") private val scriptLanguage: String
 ) {
+    companion object {
+        private const val MAX_TOOL_CALL_ROUNDS = 4
+    }
+
     private val authorizationHeader = resolveAuthorizationHeader(token, tokenFile)
     private val webClientBuilder = WebClient.builder()
         .baseUrl(baseUrl)
@@ -33,44 +40,40 @@ class OneCApiClient(
     private val objectMapper: ObjectMapper = ObjectMapper()
     
     private data class HttpResponse(val statusCode: Int, val body: String)
-    private var currentSessionId: String? = null
+    private data class ConversationState(
+        val sessionId: String,
+        var lastMessageUuid: String? = null
+    )
+    private data class ParsedSseResponse(
+        val answerText: String,
+        val reasoningText: String,
+        val assistantMessageUuid: String?,
+        val toolCalls: List<Map<*, *>>
+    )
+
+    private var currentSession: ConversationState? = null
     
-    fun askQuestion(question: String, createNewSession: Boolean = false): String {
-        return askQuestionInternal(question, createNewSession, allowRawFallback = true)
+    fun askQuestion(
+        question: String,
+        createNewSession: Boolean = false,
+        programmingLanguage: String? = null
+    ): String {
+        return askQuestionInternal(question, createNewSession, programmingLanguage, allowRawFallback = true)
     }
 
     private fun askQuestionInternal(
         question: String,
         createNewSession: Boolean,
+        programmingLanguage: String?,
         allowRawFallback: Boolean
     ): String {
         try {
-            val sessionId = if (createNewSession || currentSessionId == null) {
-                createNewSession(skillName)
+            val session = if (createNewSession || currentSession == null) {
+                createNewSession(skillName, programmingLanguage)
             } else {
-                currentSessionId!!
+                currentSession!!
             }
-            
-            val request = buildQuestionRequest(question)
-            val response: HttpResponse = executePost(
-                path = "/chat_api/v1/conversations/$sessionId/messages",
-                requestBody = request,
-                accept = "text/event-stream"
-            )
-            if (response.statusCode != 200) {
-                logger.error { "1C API error: status=${response.statusCode}, body=${response.body}" }
-                return "Ошибка: HTTP ${response.statusCode} от 1С:Напарник"
-            }
-            val parsed: String = parseSseResponse(response.body)
-            if (parsed.startsWith("Ошибка:")) {
-                logger.error { "1C API SSE parse error: body=${response.body}" }
-                if (allowRawFallback && shouldRetryWithRawSkill(response.body)) {
-                    logger.warn { "1C API returned tool calls without final answer, retrying with raw skill" }
-                    val rawSessionId = createNewSession("raw", persistSession = false)
-                    return askQuestionInExistingSession(question, rawSessionId, allowRawFallback = false)
-                }
-            }
-            return parsed
+            return askQuestionInExistingSession(question, session, programmingLanguage, allowRawFallback)
             
         } catch (e: Exception) {
             logger.error(e) { "Ошибка при обращении к 1С:Напарник API" }
@@ -80,28 +83,58 @@ class OneCApiClient(
 
     private fun askQuestionInExistingSession(
         question: String,
-        sessionId: String,
+        session: ConversationState,
+        programmingLanguage: String?,
         allowRawFallback: Boolean
     ): String {
-        val request = buildQuestionRequest(question)
-        val response = executePost(
-            path = "/chat_api/v1/conversations/$sessionId/messages",
-            requestBody = request,
-            accept = "text/event-stream"
-        )
-        if (response.statusCode != 200) {
-            logger.error { "1C API error: status=${response.statusCode}, body=${response.body}" }
-            return "Ошибка: HTTP ${response.statusCode} от 1С:Напарник"
+        val answerSegments = mutableListOf<String>()
+        var request: Map<String, Any?> = buildQuestionRequest(question, session.lastMessageUuid)
+
+        repeat(MAX_TOOL_CALL_ROUNDS + 1) { round ->
+            val response = executePost(
+                path = "/chat_api/v1/conversations/${session.sessionId}/messages",
+                requestBody = request,
+                accept = "text/event-stream"
+            )
+            if (response.statusCode != 200) {
+                logger.error { "1C API error: status=${response.statusCode}, body=${response.body}" }
+                return "Ошибка: HTTP ${response.statusCode} от 1С:Напарник"
+            }
+
+            val parsed = parseSseResponseDetails(response.body)
+            if (parsed.assistantMessageUuid != null) {
+                session.lastMessageUuid = parsed.assistantMessageUuid
+            }
+            if (parsed.answerText.isNotBlank()) {
+                appendAnswerSegment(answerSegments, parsed.answerText)
+            }
+
+            if (parsed.toolCalls.isEmpty()) {
+                return buildFinalAnswer(answerSegments, parsed)
+            }
+
+            if (session.lastMessageUuid == null) {
+                logger.error { "1C API returned tool calls without assistant message uuid: body=${response.body}" }
+                if (allowRawFallback) {
+                    logger.warn { "Retrying with raw skill because tool call continuation is impossible" }
+                    val rawSession = createNewSession("raw", programmingLanguage, persistSession = false)
+                    return askQuestionInExistingSession(question, rawSession, programmingLanguage, allowRawFallback = false)
+                }
+                return "Ошибка: 1С:Напарник запросил tool_calls без uuid сообщения"
+            }
+
+            if (round >= MAX_TOOL_CALL_ROUNDS) {
+                logger.error { "1C API tool call loop exceeded $MAX_TOOL_CALL_ROUNDS rounds" }
+                return buildFinalAnswer(answerSegments, parsed)
+                    .takeIf { !it.startsWith("Ошибка:") }
+                    ?: "Ошибка: превышен лимит обработки tool_calls 1С:Напарник"
+            }
+
+            logger.info { "1C API returned ${parsed.toolCalls.size} tool_calls, sending accepted tool results" }
+            request = buildToolResultRequest(session.lastMessageUuid!!, parsed.toolCalls)
         }
 
-        val parsed = parseSseResponse(response.body)
-        if (parsed.startsWith("Ошибка:") && allowRawFallback && shouldRetryWithRawSkill(response.body)) {
-            logger.warn { "1C API returned tool calls without final answer, retrying with raw skill" }
-            val rawSessionId = createNewSession("raw", persistSession = false)
-            return askQuestionInExistingSession(question, rawSessionId, allowRawFallback = false)
-        }
-
-        return parsed
+        return "Ошибка: превышен лимит обработки tool_calls 1С:Напарник"
     }
     
     private fun buildResponseInstruction(question: String): String {
@@ -114,27 +147,55 @@ class OneCApiClient(
         """.trimIndent()
     }
 
-    private fun buildQuestionRequest(question: String): Map<String, Any?> {
+    private fun buildQuestionRequest(question: String, parentUuid: String?): Map<String, Any?> {
         val responseInstruction = buildResponseInstruction(question)
         return mapOf(
             "role" to "user",
             "content" to mapOf(
                 "content" to mapOf("instruction" to responseInstruction)
             ),
-            "parent_uuid" to null
+            "parent_uuid" to parentUuid
         )
     }
 
-    private fun createNewSession(skillName: String, persistSession: Boolean = true): String {
+    private fun buildToolResultRequest(parentUuid: String, toolCalls: List<Map<*, *>>): Map<String, Any?> {
+        return mapOf(
+            "role" to "tool",
+            "parent_uuid" to parentUuid,
+            "content" to toolCalls.mapNotNull { toolCall ->
+                val toolCallId = toolCall["id"] as? String
+                if (toolCallId.isNullOrBlank()) {
+                    logger.warn { "Skipping tool_call without id: $toolCall" }
+                    null
+                } else {
+                    mapOf(
+                        "tool_call_id" to toolCallId,
+                        "status" to "accepted",
+                        "content" to null
+                    )
+                }
+            }
+        )
+    }
+
+    private fun createNewSession(
+        skillName: String,
+        programmingLanguage: String?,
+        persistSession: Boolean = true
+    ): ConversationState {
         try {
             val request = mapOf(
                 "skill_name" to skillName,
+                "ui_language" to uiLanguage,
+                "programming_language" to normalizeProgrammingLanguage(programmingLanguage),
+                "script_language" to scriptLanguage,
                 "is_chat" to true
             )
             val response: HttpResponse = executePost(
                 path = "/chat_api/v1/conversations/",
                 requestBody = request,
-                accept = "application/json"
+                accept = "application/json",
+                headers = mapOf("Session-Id" to "")
             )
             if (response.statusCode != 200) {
                 logger.error { "1C API session init error: status=${response.statusCode}, body=${response.body.take(2000)}" }
@@ -143,10 +204,11 @@ class OneCApiClient(
             val responseMap: Map<*, *> = objectMapper.readValue(response.body, Map::class.java)
             val sessionId: String? = responseMap["uuid"] as? String
             if (sessionId != null) {
+                val session = ConversationState(sessionId)
                 if (persistSession) {
-                    currentSessionId = sessionId
+                    currentSession = session
                 }
-                return sessionId
+                return session
             } else {
                 throw RuntimeException("Не удалось создать сессию")
             }
@@ -156,14 +218,24 @@ class OneCApiClient(
         }
     }
 
-    private fun shouldRetryWithRawSkill(responseBody: String): Boolean {
-        return responseBody.contains("\"tool_calls\":[") || responseBody.contains("\"tool_calls\": [")
+    private fun normalizeProgrammingLanguage(programmingLanguage: String?): String {
+        val normalized = programmingLanguage?.trim()?.takeIf { it.isNotBlank() } ?: defaultProgrammingLanguage
+        return when (normalized.lowercase()) {
+            "bsl", "1с", "1c:enterprise", "1c_enterprise" -> "1c"
+            else -> normalized
+        }
     }
     
     private fun parseSseResponse(sseResponse: String): String {
+        return buildFinalAnswer(emptyList(), parseSseResponseDetails(sseResponse))
+    }
+
+    private fun parseSseResponseDetails(sseResponse: String): ParsedSseResponse {
         try {
             var answerText = ""
             var reasoningText = ""
+            var assistantMessageUuid: String? = null
+            var toolCalls = emptyList<Map<*, *>>()
 
             for (dataStr in extractSseDataEvents(sseResponse)) {
                 if (dataStr == "[DONE]") {
@@ -174,9 +246,18 @@ class OneCApiClient(
                     val data = objectMapper.readValue(dataStr, Map::class.java)
                     var shouldStop = false
                     val eventType = (data["type"] as? String)?.lowercase()
+                    val role = data["role"] as? String
+
+                    if (role == "user") {
+                        continue
+                    }
 
                     val contentDelta = data["content_delta"] as? Map<*, *>
                     if (contentDelta != null) {
+                        val deltaToolCalls = extractToolCalls(contentDelta)
+                        if (deltaToolCalls.isNotEmpty()) {
+                            toolCalls = deltaToolCalls
+                        }
                         val deltaContent = sanitizeModelOutput(extractAnswerText(contentDelta))
                         if (deltaContent.isNotEmpty()) {
                             answerText += deltaContent
@@ -188,8 +269,12 @@ class OneCApiClient(
                     }
 
                     val content = data["content"] as? Map<*, *>
+                    val contentToolCalls = extractToolCalls(content)
+                    if (contentToolCalls.isNotEmpty()) {
+                        toolCalls = contentToolCalls
+                    }
                     val finalContent = sanitizeModelOutput(extractAnswerText(content))
-                    if (finalContent.isNotEmpty() && finalContent.length > answerText.length) {
+                    if (role != "tool" && finalContent.isNotEmpty() && finalContent.length > answerText.length) {
                         answerText = finalContent
                     }
                     val finalReasoning = extractReasoningText(content, eventType)
@@ -231,7 +316,7 @@ class OneCApiClient(
                         }
                     }
 
-                    if (shouldUseGenericEventExtraction(data)) {
+                    if (role != "tool" && shouldUseGenericEventExtraction(data)) {
                         val eventAnswer = sanitizeModelOutput(extractAnswerText(data, eventType))
                         if (eventAnswer.isNotEmpty()) {
                             if (shouldReplaceAnswer(data, eventType, answerText, eventAnswer)) {
@@ -251,13 +336,13 @@ class OneCApiClient(
                         }
                     }
 
-                    val role = data["role"] as? String
                     val finished = when (val finishedValue = data["finished"]) {
                         is Boolean -> finishedValue
                         is String -> finishedValue.equals("true", ignoreCase = true)
                         else -> false
                     }
                     if (role == "assistant" && finished) {
+                        assistantMessageUuid = data["uuid"] as? String ?: assistantMessageUuid
                         shouldStop = true
                     }
 
@@ -269,19 +354,50 @@ class OneCApiClient(
                 }
             }
 
-            val normalizedAnswer = answerText.trim()
-            return when {
-                normalizedAnswer.isNotEmpty() -> normalizedAnswer
-                reasoningText.isNotEmpty() -> {
-                    logger.warn { "От 1С:Напарник получены только рассуждения без итогового ответа" }
-                    "Ошибка: получены только рассуждения модели без итогового ответа"
-                }
-                else -> "Ошибка: не получен ответ от 1С:Напарник"
-            }
+            return ParsedSseResponse(
+                answerText = answerText.trim(),
+                reasoningText = reasoningText,
+                assistantMessageUuid = assistantMessageUuid,
+                toolCalls = toolCalls
+            )
         } catch (e: Exception) {
             logger.error(e) { "Ошибка парсинга SSE ответа" }
-            return "Ошибка парсинга ответа: ${e.message}"
+            return ParsedSseResponse(
+                answerText = "Ошибка парсинга ответа: ${e.message}",
+                reasoningText = "",
+                assistantMessageUuid = null,
+                toolCalls = emptyList()
+            )
         }
+    }
+
+    private fun buildFinalAnswer(answerSegments: List<String>, parsed: ParsedSseResponse): String {
+        val allSegments = answerSegments.toMutableList()
+        if (parsed.answerText.isNotBlank()) {
+            appendAnswerSegment(allSegments, parsed.answerText)
+        }
+        val normalizedAnswer = allSegments.joinToString("\n\n").trim()
+        return when {
+            normalizedAnswer.isNotEmpty() -> normalizedAnswer
+            parsed.toolCalls.isNotEmpty() -> "Ошибка: 1С:Напарник запросил tool_calls, но не вернул итоговый ответ"
+            parsed.reasoningText.isNotEmpty() -> {
+                logger.warn { "От 1С:Напарник получены только рассуждения без итогового ответа" }
+                "Ошибка: получены только рассуждения модели без итогового ответа"
+            }
+            else -> "Ошибка: не получен ответ от 1С:Напарник"
+        }
+    }
+
+    private fun appendAnswerSegment(answerSegments: MutableList<String>, text: String) {
+        val normalized = text.trim()
+        if (normalized.isNotEmpty() && answerSegments.lastOrNull() != normalized) {
+            answerSegments += normalized
+        }
+    }
+
+    private fun extractToolCalls(content: Map<*, *>?): List<Map<*, *>> {
+        val toolCalls = content?.get("tool_calls") as? List<*> ?: return emptyList()
+        return toolCalls.mapNotNull { it as? Map<*, *> }
     }
 
     private fun extractSseDataEvents(sseResponse: String): List<String> {
@@ -501,11 +617,19 @@ class OneCApiClient(
         }
     }
 
-    private fun executePost(path: String, requestBody: Any, accept: String? = null): HttpResponse {
-        val requestSpec = if (accept != null) {
+    private fun executePost(
+        path: String,
+        requestBody: Any,
+        accept: String? = null,
+        headers: Map<String, String> = emptyMap()
+    ): HttpResponse {
+        var requestSpec = if (accept != null) {
             webClient.post().uri(path).header("Accept", accept)
         } else {
             webClient.post().uri(path)
+        }
+        headers.forEach { (name, value) ->
+            requestSpec = requestSpec.header(name, value)
         }
         val response: HttpResponse? = requestSpec
             .bodyValue(requestBody)

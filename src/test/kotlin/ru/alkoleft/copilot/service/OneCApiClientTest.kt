@@ -10,7 +10,10 @@ class OneCApiClientTest {
         tokenFile = "",
         baseUrl = "https://example.com",
         timeout = 30,
-        skillName = "raw"
+        skillName = "raw",
+        uiLanguage = "ru",
+        defaultProgrammingLanguage = "1c",
+        scriptLanguage = "ru"
     )
 
     @Test
@@ -169,6 +172,46 @@ class OneCApiClientTest {
     }
 
     @Test
+    fun `parseSseResponse ignores tool echo and returns assistant followup`() {
+        val sse = """
+            data: {"uuid":"tool-1","role":"tool","content":[{"tool_call_id":"call-1","status":"accepted","content":null}],"finished":true}
+            data: {"uuid":"assistant-2","role":"assistant","content":{"content":"Готово после инструмента"},"finished":true}
+        """.trimIndent()
+
+        val result = invokeParseSseResponse(sse)
+
+        assertEquals("Готово после инструмента", result)
+    }
+
+    @Test
+    fun `buildToolResultRequest accepts upstream tool calls`() {
+        val result = invokeBuildToolResultRequest(
+            parentUuid = "assistant-1",
+            toolCalls = listOf(mapOf("id" to "call-1"))
+        )
+
+        assertEquals("tool", result["role"])
+        assertEquals("assistant-1", result["parent_uuid"])
+        assertEquals(
+            listOf(
+                mapOf(
+                    "tool_call_id" to "call-1",
+                    "status" to "accepted",
+                    "content" to null
+                )
+            ),
+            result["content"]
+        )
+    }
+
+    @Test
+    fun `normalizeProgrammingLanguage maps bsl alias to 1c`() {
+        val result = invokeNormalizeProgrammingLanguage("BSL")
+
+        assertEquals("1c", result)
+    }
+
+    @Test
     fun `sanitizeModelOutput removes thinking tags`() {
         val result = invokeSanitizeModelOutput("<thinking>hidden</thinking>Visible")
 
@@ -197,6 +240,26 @@ class OneCApiClientTest {
 
     private fun invokeSanitizeModelOutput(input: String?): String {
         val method = OneCApiClient::class.java.getDeclaredMethod("sanitizeModelOutput", String::class.java)
+        method.isAccessible = true
+        return method.invoke(client, input) as String
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun invokeBuildToolResultRequest(
+        parentUuid: String,
+        toolCalls: List<Map<String, String>>
+    ): Map<String, Any?> {
+        val method = OneCApiClient::class.java.getDeclaredMethod(
+            "buildToolResultRequest",
+            String::class.java,
+            List::class.java
+        )
+        method.isAccessible = true
+        return method.invoke(client, parentUuid, toolCalls) as Map<String, Any?>
+    }
+
+    private fun invokeNormalizeProgrammingLanguage(input: String?): String {
+        val method = OneCApiClient::class.java.getDeclaredMethod("normalizeProgrammingLanguage", String::class.java)
         method.isAccessible = true
         return method.invoke(client, input) as String
     }
