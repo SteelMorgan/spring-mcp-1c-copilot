@@ -19,14 +19,14 @@ class OneCCopilotService(
         @ToolParam(description = "Question for 1C:Assistant AI")
         question: String,
         @ToolParam(description = "Programming language", required = false)
-        programmingLanguage: String? = null,
+        programming_language: String? = null,
         @ToolParam(description = "Create new session", required = false)
-        createNewSession: Boolean = false
+        create_new_session: Boolean = false
     ): String {
-        logger.debug { "ask_1c_ai called with question='$question', createNewSession='$createNewSession'" }
+        logger.debug { "ask_1c_ai called with question='$question', createNewSession='$create_new_session'" }
         
         return try {
-            val result = oneCApiClient.askQuestion(question, createNewSession)
+            val result = oneCApiClient.askQuestion(question, create_new_session)
             logger.debug { "ask_1c_ai result: $result" }
             result
         } catch (e: Exception) {
@@ -41,17 +41,17 @@ class OneCCopilotService(
     )
     fun explain1CSyntax(
         @ToolParam(description = "Syntax element to explain")
-        syntaxElement: String,
+        syntax_element: String,
         @ToolParam(description = "Usage context", required = false)
         context: String? = null
     ): String {
-        logger.debug { "explain_1c_syntax called with syntaxElement='$syntaxElement', context='$context'" }
+        logger.debug { "explain_1c_syntax called with syntaxElement='$syntax_element', context='$context'" }
         
         return try {
             val question = if (context != null) {
-                "Объясни синтаксис и использование: $syntaxElement в контексте: $context"
+                "Объясни синтаксис и использование: $syntax_element в контексте: $context"
             } else {
-                "Объясни синтаксис и использование: $syntaxElement"
+                "Объясни синтаксис и использование: $syntax_element"
             }
             
             val result = oneCApiClient.askQuestion(question)
@@ -71,9 +71,9 @@ class OneCCopilotService(
         @ToolParam(description = "1C code to check")
         code: String,
         @ToolParam(description = "Check type: syntax, logic, performance", required = false)
-        checkType: String = "syntax"
+        check_type: String = "syntax"
     ): String {
-        logger.debug { "check_1c_code called with code='$code', checkType='$checkType'" }
+        logger.debug { "check_1c_code called with code='$code', checkType='$check_type'" }
         
         return try {
             val checkTypes = mapOf(
@@ -81,7 +81,7 @@ class OneCCopilotService(
                 "logic" to "логические ошибки и потенциальные проблемы",
                 "performance" to "проблемы производительности и оптимизации"
             )
-            val checkDesc = checkTypes[checkType.lowercase()] ?: "ошибки"
+            val checkDesc = checkTypes[check_type.lowercase()] ?: "ошибки"
             
             val question = "Проверь этот код 1С на $checkDesc и дай рекомендации:\n\n```1c\n$code\n```"
             
